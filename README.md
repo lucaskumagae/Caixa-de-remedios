@@ -1,3 +1,9 @@
+## Origem do projeto
+
+Este projeto nasceu como trabalho em grupo da faculdade, em 2025, no repositório [caixa-temporizada](https://github.com/lucaskumagae/caixa-temporizada). Na época ele foi adaptado para uma disciplina sobre rede local e memória compartilhada, com servidor PHP/MySQL, vários usuários e pastas de receitas.
+
+Aqui ele foi retomado e reorganizado com outro foco: uma caixa que funciona sozinha, sem depender de computador, com 4 compartimentos e alarme confiável. O código foi reescrito a partir das ideias originais, e o repositório antigo continua disponível como registro do trabalho acadêmico.
+
 # Caixa de remédios
 
 Caixa de remédios com ESP32 e 4 compartimentos. Na hora de cada dose, o buzzer toca e o LED do compartimento certo acende; abrir a tampa registra a dose como tomada. Funciona sem computador e sem internet. O celular serve só para programar os remédios.
