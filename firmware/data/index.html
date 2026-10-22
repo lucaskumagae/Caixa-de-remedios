@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caixa de remédios</title>
+<style>
+  :root { --azul: #2563eb; --verde: #16a34a; --vermelho: #dc2626; --cinza: #6b7280; --fundo: #f3f4f6; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--fundo); color: #111827; }
+  header { background: var(--azul); color: #fff; padding: 12px 16px; }
+  header h1 { margin: 0; font-size: 1.25rem; }
+  #status { font-size: .9rem; opacity: .9; margin-top: 4px; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  section { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  h2 { margin: 0 0 12px; font-size: 1.1rem; }
+  button { font: inherit; border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; background: var(--azul); color: #fff; }
+  button.secundario { background: #e5e7eb; color: #111827; }
+  button.perigo { background: var(--vermelho); }
+  .remedio { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-top: 1px solid #e5e7eb; }
+  .remedio:first-child { border-top: 0; }
+  .remedio small { color: var(--cinza); display: block; }
+  .comp { display: inline-block; min-width: 28px; text-align: center; background: var(--azul); color: #fff; border-radius: 50%; padding: 4px 0; margin-right: 8px; font-weight: 600; }
+  .acoes { display: flex; gap: 6px; }
+  form { display: grid; gap: 10px; }
+  label { font-weight: 600; font-size: .9rem; display: grid; gap: 4px; }
+  input, select { font: inherit; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; }
+  .horarios, .dias { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .dias label { font-weight: 400; display: flex; gap: 4px; align-items: center; }
+  .erro { color: var(--vermelho); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: 6px 4px; border-top: 1px solid #e5e7eb; }
+  tr.alerta td { color: var(--vermelho); font-weight: 600; }
+  .ativa { background: #fef3c7; border-radius: 8px; padding: 10px; margin-bottom: 12px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Caixa de remédios</h1>
+  <div id="status">Carregando…</div>
+</header>
+<main>
+  <section id="aviso-hora" hidden>
+    <h2>A caixa está sem hora certa</h2>
+    <p>Sem a hora certa os alarmes não tocam. Use a hora deste aparelho:</p>
+    <button id="acertar-hora">Acertar hora agora</button>
+  </section>
+
+  <section>
+    <h2>Remédios</h2>
+    <div id="doses-ativas"></div>
+    <div id="lista"></div>
+    <p><button id="novo">Adicionar remédio</button></p>
+
+    <form id="formulario" hidden>
+      <input type="hidden" id="id">
+      <label>Nome<input id="nome" maxlength="40" required></label>
+      <label>Dose (opcional)<input id="dose" maxlength="40" placeholder="ex.: 1 comprimido de 50 mg"></label>
+      <label>Compartimento
+        <select id="compartimento">
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+        </select>
+      </label>
+      <div>
+        <label>Horários</label>
+        <div class="horarios" id="horarios"></div>
+        <button type="button" class="secundario" id="mais-horario">+ horário</button>
+      </div>
+      <div>
+        <label>Dias da semana</label>
+        <div class="dias" id="dias"></div>
+      </div>
+      <div class="erro" id="erro-form"></div>
+      <div class="acoes">
+        <button type="submit">Salvar</button>
+        <button type="button" class="secundario" id="cancelar">Cancelar</button>
+      </div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Histórico</h2>
+    <table>
+      <thead><tr><th>Quando</th><th>O quê</th><th>Remédio</th><th>Comp.</th></tr></thead>
+      <tbody id="historico"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const EVENTOS = {
+  alarme: "Alarme tocou",
+  tomada: "Tomada no horário",
+  atrasada: "Tomada com atraso",
+  esquecida: "Esquecida",
+  tampa_errada: "Tampa errada aberta",
+  fora_de_horario: "Aberta fora de horário",
+};
+let remedios = [];
+
+const $ = (id) => document.getElementById(id);
+function el(tag, texto, classe) {
+  const e = document.createElement(tag);
+  if (texto !== undefined) e.textContent = texto;
+  if (classe) e.className = classe;
+  return e;
+}
+// As horas da caixa já vêm no fuso local; formatar como UTC evita aplicar o fuso duas vezes.
+function formatarHora(segundosLocais) {
+  return new Date(segundosLocais * 1000).toLocaleString("pt-BR", { timeZone: "UTC", dateStyle: "short", timeStyle: "short" });
+}
+function descreverDias(mascara) {
+  if (mascara === 127) return "todos os dias";
+  return DIAS.filter((_, i) => mascara & (1 << i)).join(", ");
+}
+
+async function api(caminho, opcoes = {}) {
+  const resp = await fetch(caminho, { headers: { "Content-Type": "application/json" }, ...opcoes });
+  const dados = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(dados.erro || "Erro de comunicação com a caixa.");
+  return dados;
+}
+
+async function carregarEstado() {
+  try {
+    const e = await api("/api/estado");
+    const partes = [e.horaValida ? formatarHora(e.agora) : "sem hora", e.wifi ? "Wi‑Fi " + e.ip : "sem Wi‑Fi da casa"];
+    if (!e.rtc) partes.push("sem RTC");
+    $("status").textContent = partes.join(" · ");
+    $("aviso-hora").hidden = e.horaValida;
+    const ativas = $("doses-ativas");
+    ativas.replaceChildren();
+    for (const d of e.dosesAtivas) {
+      const r = remedios.find((x) => x.id === d.medId);
+      ativas.append(el("div", `Agora: ${r ? r.nome : "remédio"} das ${d.horario}, compartimento ${d.compartimento}`, "ativa"));
+    }
+  } catch (err) {
+    $("status").textContent = err.message;
+  }
+}
+
+function renderizarRemedios() {
+  const lista = $("lista");
+  lista.replaceChildren();
+  if (remedios.length === 0) lista.append(el("p", "Nenhum remédio cadastrado."));
+  for (const r of [...remedios].sort((a, b) => a.compartimento - b.compartimento)) {
+    const linha = el("div", undefined, "remedio");
+    const info = el("div");
+    info.append(el("span", r.compartimento, "comp"), el("strong", r.nome));
+    info.append(el("small", [r.dose, r.horarios.join(", "), descreverDias(r.diasSemana)].filter(Boolean).join(" · ")));
+    const acoes = el("div", undefined, "acoes");
+    const editar = el("button", "Editar", "secundario");
+    editar.onclick = () => abrirFormulario(r);
+    const excluir = el("button", "Excluir", "perigo");
+    excluir.onclick = async () => {
+      if (!confirm(`Excluir ${r.nome}?`)) return;
+      try { remedios = await api("/api/remedios?id=" + r.id, { method: "DELETE" }); renderizarRemedios(); }
+      catch (err) { alert(err.message); }
+    };
+    acoes.append(editar, excluir);
+    linha.append(info, acoes);
+    lista.append(linha);
+  }
+}
+
+function adicionarCampoHorario(valor = "") {
+  const campo = el("input");
+  campo.type = "time";
+  campo.value = valor;
+  campo.required = true;
+  $("horarios").append(campo);
+}
+
+function abrirFormulario(r) {
+  $("formulario").hidden = false;
+  $("erro-form").textContent = "";
+  $("id").value = r ? r.id : "";
+  $("nome").value = r ? r.nome : "";
+  $("dose").value = r ? r.dose : "";
+  $("compartimento").value = r ? r.compartimento : "1";
+  $("horarios").replaceChildren();
+  (r ? r.horarios : [""]).forEach(adicionarCampoHorario);
+  const mascara = r ? r.diasSemana : 127;
+  $("dias").replaceChildren(...DIAS.map((nome, i) => {
+    const rotulo = el("label");
+    const caixa = el("input");
+    caixa.type = "checkbox";
+    caixa.checked = !!(mascara & (1 << i));
+    caixa.dataset.bit = i;
+    rotulo.append(caixa, nome);
+    return rotulo;
+  }));
+  $("nome").focus();
+}
+
+$("novo").onclick = () => abrirFormulario(null);
+$("cancelar").onclick = () => { $("formulario").hidden = true; };
+$("mais-horario").onclick = () => adicionarCampoHorario();
+
+$("formulario").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const id = $("id").value;
+  let dias = 0;
+  $("dias").querySelectorAll("input").forEach((c) => { if (c.checked) dias |= 1 << Number(c.dataset.bit); });
+  const corpo = {
+    nome: $("nome").value.trim(),
+    dose: $("dose").value.trim(),
+    compartimento: Number($("compartimento").value),
+    horarios: [...$("horarios").querySelectorAll("input")].map((c) => c.value).filter(Boolean),
+    diasSemana: dias,
+    ativo: true,
+  };
+  try {
+    remedios = await api(id ? "/api/remedios?id=" + id : "/api/remedios", { method: id ? "PUT" : "POST", body: JSON.stringify(corpo) });
+    $("formulario").hidden = true;
+    renderizarRemedios();
+  } catch (err) {
+    $("erro-form").textContent = err.message;
+  }
+};
+
+$("acertar-hora").onclick = async () => {
+  try { await api("/api/hora", { method: "POST", body: JSON.stringify({ utc: Math.floor(Date.now() / 1000) }) }); carregarEstado(); }
+  catch (err) { alert(err.message); }
+};
+
+async function carregarHistorico() {
+  try {
+    const eventos = await api("/api/historico?limite=100");
+    const corpo = $("historico");
+    corpo.replaceChildren();
+    if (eventos.length === 0) {
+      const linha = el("tr");
+      const celula = el("td", "Nenhum evento ainda.");
+      celula.colSpan = 4;
+      linha.append(celula);
+      corpo.append(linha);
+    }
+    for (const e of eventos) {
+      const linha = el("tr", undefined, e.alerta ? "alerta" : "");
+      const horario = e.h !== undefined ? ` (${String(Math.floor(e.h / 60)).padStart(2, "0")}:${String(e.h % 60).padStart(2, "0")})` : "";
+      linha.append(el("td", formatarHora(e.t)), el("td", (EVENTOS[e.e] || e.e) + horario), el("td", e.n || "—"), el("td", e.c));
+      corpo.append(linha);
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function iniciar() {
+  try { remedios = await api("/api/remedios"); } catch (err) { $("status").textContent = err.message; }
+  renderizarRemedios();
+  carregarEstado();
+  carregarHistorico();
+  setInterval(() => { carregarEstado(); carregarHistorico(); }, 5000);
+}
+iniciar();
+</script>
+</body>
+</html>

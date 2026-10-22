@@ -1,0 +1,6 @@
+# PlatformIO
+.pio/
+.vscode/
+
+# Senhas locais (veja firmware/include/segredos.exemplo.h)
+firmware/include/segredos.h
